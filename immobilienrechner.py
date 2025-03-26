@@ -4,22 +4,34 @@ import matplotlib.pyplot as plt
 import math
 from io import BytesIO
 
-st.set_page_config(page_title="Immobilienrechner V4", layout="centered")
+st.set_page_config(page_title="Immobilienrechner V5", layout="centered")
 
 # ----------------------------- #
-# Funktion: Tilgungsplan berechnen
+# Funktion: Exakte Annuität berechnen
 # ----------------------------- #
-def tilgungsplan_erstellen(kreditsumme, sollzins, tilgung_start, tilgung_neu, wechseljahr, zinsbindung, sondertilgung):
-    jahresrate = lambda restschuld, tilgung: restschuld * (sollzins + tilgung) / 100
-    plan = []
-    restschuld = kreditsumme
+def berechne_annuitaet(kreditsumme, sollzins_prozent, laufzeit_jahre):
+    i = sollzins_prozent / 100 / 12  # Monatszins
+    n = laufzeit_jahre * 12          # Anzahl Monate
+
+    if i == 0:  # Sonderfall zinsfrei
+        return kreditsumme / n * 12  # jährliche Rate
+
+    faktor = (i * (1 + i) ** n) / ((1 + i) ** n - 1)
+    annuitaet_monatlich = kreditsumme * faktor
+    return annuitaet_monatlich * 12  # jährliche Annuität
+
+# ----------------------------- #
+# Tilgungsplan mit exakter Annuität
+# ----------------------------- #
+def tilgungsplan_erstellen(kreditsumme, sollzins, laufzeit, sondertilgung):
     jahr = 1
+    restschuld = kreditsumme
+    plan = []
+    annuitaet_jahr = berechne_annuitaet(kreditsumme, sollzins, laufzeit)
 
-    while restschuld > 0:
-        aktueller_tilgungswert = tilgung_start if jahr < wechseljahr else tilgung_neu
-        rate = jahresrate(restschuld, aktueller_tilgungswert)
+    while restschuld > 0 and jahr <= laufzeit:
         zins = restschuld * (sollzins / 100)
-        tilgung = rate - zins + sondertilgung
+        tilgung = annuitaet_jahr - zins + sondertilgung
         restschuld = max(0, restschuld - tilgung)
 
         plan.append({
@@ -27,9 +39,10 @@ def tilgungsplan_erstellen(kreditsumme, sollzins, tilgung_start, tilgung_neu, we
             "Zinszahlung": round(zins, 2),
             "Tilgung (inkl. Sondertilgung)": round(tilgung, 2),
             "Restschuld": round(restschuld, 2),
-            "Tilgungssatz": aktueller_tilgungswert,
+            "Annuität": round(annuitaet_jahr, 2),
             "Sondertilgung": sondertilgung
         })
+
         jahr += 1
 
     return plan
@@ -38,7 +51,7 @@ def tilgungsplan_erstellen(kreditsumme, sollzins, tilgung_start, tilgung_neu, we
 # Layout oben: Eingabefelder
 # ----------------------------- #
 
-st.title("🏡 Immobilienfinanzierungs-Rechner – Version 4")
+st.title("🏡 Immobilienfinanzierungs-Rechner – Version 5 (exakte Methode)")
 
 col1, col2, col3 = st.columns(3)
 
@@ -49,12 +62,10 @@ with col1:
 
 with col2:
     sollzins = st.number_input("Sollzins (% p.a.)", 0.1, 10.0, 3.0, 0.1)
-    tilgungssatz = st.number_input("Starttilgung (% p.a.)", 0.5, 10.0, 2.0, 0.1)
+    laufzeit = st.number_input("Laufzeit (Jahre)", 5, 40, 30, 1)
     zinsbindung = st.number_input("Zinsbindung (Jahre)", 1, 30, 10, 1)
 
 with col3:
-    wechseljahr = st.number_input("Tilgungswechsel ab Jahr", 2, 50, 11, 1)
-    neue_tilgung = st.number_input("Neue Tilgung (% p.a.)", 0.5, 10.0, 3.5, 0.1)
     sondertilgung = st.number_input("Jährliche Sondertilgung (€)", 0, 50000, 1000, 500)
 
 # ----------------------------- #
@@ -65,14 +76,10 @@ if st.button("💰 Finanzierung berechnen"):
     gesamtkosten = kaufpreis + nebenskosten
     kreditsumme = gesamtkosten - eigenkapital
 
-    plan = tilgungsplan_erstellen(
-        kreditsumme, sollzins, tilgungssatz, neue_tilgung,
-        wechseljahr, zinsbindung, sondertilgung
-    )
-
+    plan = tilgungsplan_erstellen(kreditsumme, sollzins, laufzeit, sondertilgung)
     df = pd.DataFrame(plan)
-    laufzeit = len(df)
-    zinsbindungen = math.ceil(laufzeit / zinsbindung)
+    laufzeit_effektiv = len(df)
+    zinsbindungen = math.ceil(laufzeit_effektiv / zinsbindung)
 
     # ----------------------------- #
     # Ergebnisübersicht
@@ -80,7 +87,7 @@ if st.button("💰 Finanzierung berechnen"):
     st.subheader("📊 Ergebnisübersicht")
     st.markdown(f"**Gesamtkosten:** {gesamtkosten:,.2f} €")
     st.markdown(f"**Kreditsumme:** {kreditsumme:,.2f} €")
-    st.markdown(f"**Voraussichtliche Laufzeit:** {laufzeit} Jahre")
+    st.markdown(f"**Voraussichtliche Laufzeit:** {laufzeit_effektiv} Jahre")
     st.markdown(f"**Zinsbindungsphasen:** {zinsbindungen} x {zinsbindung} Jahre")
 
     # ----------------------------- #
@@ -105,7 +112,7 @@ if st.button("💰 Finanzierung berechnen"):
         "Zinszahlung": "{:,.2f}",
         "Tilgung (inkl. Sondertilgung)": "{:,.2f}",
         "Restschuld": "{:,.2f}",
-        "Tilgungssatz": "{:,.2f}",
+        "Annuität": "{:,.2f}",
         "Sondertilgung": "{:,.2f}"
     }))
 
@@ -120,6 +127,9 @@ if st.button("💰 Finanzierung berechnen"):
         file_name="tilgungsplan.csv",
         mime="text/csv"
     )
+
+else:
+    st.info("Bitte gib alle Werte ein und klicke auf **💰 Finanzierung berechnen**.")
 
 else:
     st.info("Bitte gib alle Werte ein und klicke auf **💰 Finanzierung berechnen**.")
