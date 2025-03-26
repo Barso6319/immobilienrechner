@@ -20,11 +20,17 @@ tilgungssatz = st.sidebar.number_input("Tilgung (% p.a.)", 0.5, 10.0, 2.0, 0.1)
 nebenkosten = st.sidebar.number_input("Nebenkosten (% vom Kaufpreis)", 0.0, 20.0, 10.0, 0.5)
 
 if st.sidebar.button("💰 Finanzierung berechnen"):
-    gesamt, kredit, jahr_rate, monat_rate = berechne_immobilienfinanzierung(
-        kaufpreis, eigenkapital, sollzins, tilgungssatz, nebenkosten
-    )
-    st.subheader("📊 Ergebnisse")
-    st.success(f"Gesamtkosten: {gesamt:,.2f} €")
-    st.info(f"Kreditsumme: {kredit:,.2f} €")
-    st.write(f"Jährliche Rate: {jahr_rate:,.2f} €")
-    st.write(f"Monatliche Rate: {monat_rate:,.2f} €")
+    try:
+        gesamt, kredit, jahr_rate, monat_rate = berechne_immobilienfinanzierung(
+            kaufpreis, eigenkapital, sollzins, tilgungssatz, nebenkosten
+        )
+
+        st.subheader("📊 Ergebnisse")
+        st.success(f"Gesamtkosten: {gesamt:,.2f} €")
+        st.info(f"Kreditsumme: {kredit:,.2f} €")
+        st.write(f"Jährliche Rate: {jahr_rate:,.2f} €")
+        st.write(f"Monatliche Rate: {monat_rate:,.2f} €")
+
+    except Exception as e:
+        st.error(f"❌ Fehler bei der Berechnung: {e}")
+
