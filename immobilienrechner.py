@@ -2,56 +2,60 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import math
-from io import BytesIO
 
-st.set_page_config(page_title="Immobilienrechner V5", layout="centered")
+st.set_page_config(page_title="Immobilienrechner V6", layout="centered")
 
 # ----------------------------- #
-# Funktion: Exakte Annuität berechnen
+# Funktion: Monatliche Annuität berechnen
 # ----------------------------- #
-def berechne_annuitaet(kreditsumme, sollzins_prozent, laufzeit_jahre):
+def berechne_annuitaet_monatlich(kreditsumme, sollzins_prozent, laufzeit_jahre):
     i = sollzins_prozent / 100 / 12  # Monatszins
     n = laufzeit_jahre * 12          # Anzahl Monate
 
-    if i == 0:  # Sonderfall zinsfrei
-        return kreditsumme / n * 12  # jährliche Rate
+    if i == 0:
+        return kreditsumme / n
 
     faktor = (i * (1 + i) ** n) / ((1 + i) ** n - 1)
-    annuitaet_monatlich = kreditsumme * faktor
-    return annuitaet_monatlich * 12  # jährliche Annuität
+    return kreditsumme * faktor
 
 # ----------------------------- #
-# Tilgungsplan mit exakter Annuität
+# Funktion: Monatlicher Tilgungsplan
 # ----------------------------- #
-def tilgungsplan_erstellen(kreditsumme, sollzins, laufzeit, sondertilgung):
-    jahr = 1
+def tilgungsplan_monatlich(kreditsumme, sollzins, laufzeit, sondertilgung_jahr):
+    monatsrate = berechne_annuitaet_monatlich(kreditsumme, sollzins, laufzeit)
     restschuld = kreditsumme
     plan = []
-    annuitaet_jahr = berechne_annuitaet(kreditsumme, sollzins, laufzeit)
 
-    while restschuld > 0 and jahr <= laufzeit:
-        zins = restschuld * (sollzins / 100)
-        tilgung = annuitaet_jahr - zins + sondertilgung
+    for monat in range(1, laufzeit * 12 + 1):
+        jahr = (monat - 1) // 12 + 1
+        zins = restschuld * (sollzins / 100 / 12)
+        tilgung = monatsrate - zins
+
+        # Sondertilgung immer im Dezember
+        if monat % 12 == 0 and restschuld > 0:
+            tilgung += sondertilgung_jahr
+
         restschuld = max(0, restschuld - tilgung)
 
         plan.append({
+            "Monat": monat,
             "Jahr": jahr,
             "Zinszahlung": round(zins, 2),
-            "Tilgung (inkl. Sondertilgung)": round(tilgung, 2),
+            "Tilgung": round(tilgung, 2),
+            "Gesamtrate": round(monatsrate + (sondertilgung_jahr if monat % 12 == 0 else 0), 2),
             "Restschuld": round(restschuld, 2),
-            "Annuität": round(annuitaet_jahr, 2),
-            "Sondertilgung": sondertilgung
+            "Sondertilgung": sondertilgung_jahr if monat % 12 == 0 else 0
         })
 
-        jahr += 1
+        if restschuld <= 0:
+            break
 
-    return plan
+    return pd.DataFrame(plan)
 
 # ----------------------------- #
-# Layout oben: Eingabefelder
+# Eingabebereich
 # ----------------------------- #
-
-st.title("🏡 Immobilienfinanzierungs-Rechner – Version 5 (exakte Methode)")
+st.title("🏡 Immobilienfinanzierungs-Rechner – Version 6 (monatlich genau)")
 
 col1, col2, col3 = st.columns(3)
 
@@ -76,10 +80,17 @@ if st.button("💰 Finanzierung berechnen"):
     gesamtkosten = kaufpreis + nebenskosten
     kreditsumme = gesamtkosten - eigenkapital
 
-    plan = tilgungsplan_erstellen(kreditsumme, sollzins, laufzeit, sondertilgung)
-    df = pd.DataFrame(plan)
-    laufzeit_effektiv = len(df)
+    df_monatlich = tilgungsplan_monatlich(kreditsumme, sollzins, laufzeit, sondertilgung)
+    laufzeit_effektiv = df_monatlich["Monat"].max() // 12 + 1
     zinsbindungen = math.ceil(laufzeit_effektiv / zinsbindung)
+
+    # ----------------------------- #
+    # Zusammenfassung pro Jahr für Grafik
+    # ----------------------------- #
+    df_jahr = df_monatlich.groupby("Jahr").agg({
+        "Zinszahlung": "sum",
+        "Tilgung": "sum"
+    }).reset_index()
 
     # ----------------------------- #
     # Ergebnisübersicht
@@ -91,46 +102,41 @@ if st.button("💰 Finanzierung berechnen"):
     st.markdown(f"**Zinsbindungsphasen:** {zinsbindungen} x {zinsbindung} Jahre")
 
     # ----------------------------- #
-    # Grafik: Tilgung vs. Zins
+    # Grafik
     # ----------------------------- #
-    st.subheader("📈 Tilgungsverlauf")
+    st.subheader("📈 Jährlicher Verlauf")
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.bar(df["Jahr"], df["Zinszahlung"], label="Zins", color="red", alpha=0.6)
-    ax.bar(df["Jahr"], df["Tilgung (inkl. Sondertilgung)"], bottom=df["Zinszahlung"], label="Tilgung", color="green", alpha=0.8)
+    ax.bar(df_jahr["Jahr"], df_jahr["Zinszahlung"], label="Zins", color="red", alpha=0.6)
+    ax.bar(df_jahr["Jahr"], df_jahr["Tilgung"], bottom=df_jahr["Zinszahlung"], label="Tilgung", color="green", alpha=0.8)
     ax.set_xlabel("Jahr")
     ax.set_ylabel("Zahlung in €")
-    ax.set_title("Zins- und Tilgungsverlauf")
+    ax.set_title("Zins- und Tilgungsverlauf pro Jahr")
     ax.legend()
     st.pyplot(fig)
 
     # ----------------------------- #
-    # Tabelle: Tilgungsplan
+    # Monatliche Tabelle
     # ----------------------------- #
-    st.subheader("📋 Tilgungsplan (Tabelle)")
-    st.dataframe(df.style.format({
+    st.subheader("📋 Monatlicher Tilgungsplan")
+    st.dataframe(df_monatlich.style.format({
         "Zinszahlung": "{:,.2f}",
-        "Tilgung (inkl. Sondertilgung)": "{:,.2f}",
+        "Tilgung": "{:,.2f}",
+        "Gesamtrate": "{:,.2f}",
         "Restschuld": "{:,.2f}",
-        "Annuität": "{:,.2f}",
         "Sondertilgung": "{:,.2f}"
     }))
 
     # ----------------------------- #
-    # Download als Excel (CSV)
+    # Download
     # ----------------------------- #
-    st.subheader("📥 Tilgungsplan herunterladen")
-    csv = df.to_csv(index=False).encode("utf-8")
+    csv = df_monatlich.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="📄 CSV-Datei herunterladen",
+        label="📄 Tilgungsplan als CSV herunterladen",
         data=csv,
-        file_name="tilgungsplan.csv",
+        file_name="tilgungsplan_monatlich.csv",
         mime="text/csv"
     )
 
 else:
-    st.info("Bitte gib alle Werte ein und klicke auf **💰 Finanzierung berechnen**.")
-
-else:
-    st.info("Bitte gib alle Werte ein und klicke auf **💰 Finanzierung berechnen**.")
-
+    st.info("Bitte gib deine Werte ein und klicke auf **💰 Finanzierung berechnen**.")
